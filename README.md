@@ -14,7 +14,7 @@ Every save produces a portable **`.md` file**. The photo is embedded inside it b
 
 **Fastest path:** open page → type surroundings → `Enter` → type thought → `Enter`. Done, file saved.
 
-- Live app (once GitHub Pages is on): `https://ryelikebread.github.io/Terminal-Snapshot/`
+- **Live app:** https://ryelikebread.github.io/Terminal-Snapshot/
 - Full guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
 No build step, no dependencies, no server, no tracking. Your notes never leave your device except as files you save.
