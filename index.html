@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terminal Snapshot</title>
+<meta name="description" content="Terminal-style quick notes. Every entry saves as a .md file.">
+<meta name="theme-color" content="#0b0f0b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="term" aria-label="Terminal Snapshot">
+  <header class="banner">
+    <pre aria-hidden="true">┌─ terminal-snapshot ─────────────────────────┐</pre>
+    <div class="hint">Enter = next / save · Shift+Enter = new line · Alt+P = photo · Ctrl+K = command · type <b>help</b></div>
+  </header>
+
+  <section id="log" aria-live="polite"></section>
+
+  <form id="entry" autocomplete="off">
+    <div class="line sys"><span class="k">timestamp</span><span class="sep">:</span> <span id="ts">--</span> <span id="tslock" class="dim"></span></div>
+    <div class="line sys"><span class="k">coords   </span><span class="sep">:</span> <span id="geo">acquiring…</span> <button type="button" id="geoRetry" class="link" title="Retry location">[retry]</button></div>
+
+    <label class="line q" for="surr"><span class="prompt">snapshot of surroundings&gt;</span></label>
+    <textarea id="surr" rows="1" spellcheck="true" placeholder="what's around you…"></textarea>
+
+    <div class="line q photo-row">
+      <span class="prompt">photo (optional)&gt;</span>
+      <button type="button" id="photoBtn" class="link">[attach]</button>
+      <span id="photoInfo" class="dim">none · paste or drop works too</span>
+      <button type="button" id="photoClear" class="link" hidden>[remove]</button>
+      <input type="file" id="photoInput" accept="image/*" hidden>
+    </div>
+    <img id="photoPreview" alt="" hidden>
+
+    <label class="line q" for="think"><span class="prompt">thinking about?&gt;</span></label>
+    <textarea id="think" rows="1" spellcheck="true" placeholder="what's on your mind… (Enter saves)"></textarea>
+
+    <div class="actions">
+      <button type="submit" class="btn">[ save .md ]</button>
+      <button type="button" id="newBtn" class="btn ghost">[ new ]</button>
+    </div>
+  </form>
+
+  <div class="cmdline">
+    <label for="cmd" class="prompt">$</label>
+    <input id="cmd" type="text" spellcheck="false" autocapitalize="off" placeholder="command (help)" enterkeyhint="go">
+  </div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
