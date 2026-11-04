@@ -86,3 +86,4 @@ textarea::placeholder, input::placeholder { color: var(--dim); opacity: .7; }
   .caret::after { content: "█"; animation: blink 1s steps(1) infinite; color: var(--hi); }
   @keyframes blink { 50% { opacity: 0; } }
 }
+#log .btn.act { margin: 4px 0; padding: 8px 12px; }

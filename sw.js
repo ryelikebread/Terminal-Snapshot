@@ -1,5 +1,5 @@
 // Offline cache: the app keeps working with no signal once it has loaded once.
-const CACHE = "terminal-snapshot-v1";
+const CACHE = "terminal-snapshot-v2";
 const FILES = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", (e) => {
