@@ -13,7 +13,7 @@
   };
 
   /* ---------- settings (per browser) ---------- */
-  const DEFAULTS = { photo: "embed", theme: "green", maxPx: 1600 };
+  const DEFAULTS = { photo: "embed", theme: "green", maxPx: 1600, save: "auto" };
   const settings = Object.assign({}, DEFAULTS, readJSON("ts.settings", {}));
   function saveSettings() { writeJSON("ts.settings", settings); }
   function readJSON(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
@@ -209,19 +209,62 @@
     const files = [{ name: base + ".md", blob: new Blob([md], { type: "text/markdown;charset=utf-8" }) }];
     if (entry.photo && settings.photo === "separate") files.push({ name: base + ".jpg", blob: dataUrlToBlob(entry.photo.dataUrl) });
 
+    // Keep a copy in history first (not awaited, so the share sheet still opens from this tap).
+    const stored = db.put({ id: base, created: entry.startedAt.getTime(), files: files.map((f) => ({ name: f.name, blob: f.blob })) });
+    const photoBlob = entry.photo && settings.photo !== "separate" ? dataUrlToBlob(entry.photo.dataUrl) : null;
     try {
-      const where = await writeFiles(files);
-      await db.put({ id: base, created: entry.startedAt.getTime(), files: files.map((f) => ({ name: f.name, blob: f.blob })) });
-      print(`saved ${files.map((f) => f.name).join(" + ")} · ${kb(files.reduce((s, f) => s + f.blob.size, 0))} → ${where}`, "ok");
-      clearDraft();
-      newEntry();
+      await deliver(files);
+      if (photoBlob) offerPhoto(base + ".jpg", photoBlob);
     } catch (err) {
       print(`save failed: ${err.message || err}`, "err");
-    } finally { saving = false; }
+    } finally {
+      await stored;
+      clearDraft();
+      newEntry();
+      saving = false;
+    }
   }
 
-  // Write to the chosen folder if one is set (Chrome/Edge desktop), otherwise download.
-  async function writeFiles(files) {
+  /* ---------- delivery: share sheet (iPhone/iPad) or download / folder ---------- */
+  const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const STANDALONE = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+  const sizeOf = (files) => kb(files.reduce((s, f) => s + f.blob.size, 0));
+  const names = (files) => files.map((f) => f.name).join(" + ");
+
+  function toFiles(files) {
+    return files.map((f) => {
+      const file = new File([f.blob], f.name, { type: f.blob.type });
+      if (navigator.canShare?.({ files: [file] })) return file;
+      // Some browsers only accept text/plain for sharing; the .md name is kept.
+      return new File([f.blob], f.name, { type: f.name.endsWith(".md") ? "text/plain" : f.blob.type });
+    });
+  }
+  function canShareFiles(files) {
+    try { return !!navigator.canShare && navigator.canShare({ files: toFiles(files) }); } catch { return false; }
+  }
+  function shareMode(files) {
+    if (settings.save === "download") return false;
+    if (settings.save === "share") return canShareFiles(files);
+    return IOS && canShareFiles(files); // auto
+  }
+
+  // Opens the share sheet. On "not allowed" (tap expired) it leaves a button to try again.
+  async function shareFiles(files, label) {
+    try {
+      await navigator.share({ files: toFiles(files) });
+      print(`shared ${names(files)} · ${sizeOf(files)} → wherever you picked in the share sheet` +
+        (IOS ? ` (Save to Files = Files app › the folder you chose${files.some((f) => f.name.endsWith(".jpg")) ? "; Save Image = Photos" : ""})` : ""), "ok");
+      return true;
+    } catch (err) {
+      if (err.name === "AbortError") print(`share cancelled — ${label} is kept in history (ls / get)`, "dim");
+      else print(`share sheet didn't open (${err.message || err.name})`, "err");
+      printAction(`[ tap to save ${names(files)} ]`, () => shareFiles(files, label));
+      return false;
+    }
+  }
+
+  async function deliver(files, label = "entry") {
+    if (shareMode(files)) return shareFiles(files, label);
     const dir = await getDir();
     if (dir) {
       try {
@@ -231,14 +274,24 @@
           const fh = await dir.getFileHandle(f.name, { create: true });
           const w = await fh.createWritable(); await w.write(f.blob); await w.close();
         }
-        return `folder "${dir.name}"`;
+        print(`saved ${names(files)} · ${sizeOf(files)} → folder "${dir.name}"`, "ok");
+        return true;
       } catch (err) {
         print(`folder write failed (${err.message}); downloading instead`, "err");
       }
     }
     files.forEach((f, i) => setTimeout(() => download(f.name, f.blob), i * 250));
-    return "downloads";
+    print(`saved ${names(files)} · ${sizeOf(files)} → ${IOS ? "Files app › Downloads (tap ⓘ / the download arrow in Safari's address bar)" : "your Downloads folder"}`, "ok");
+    if (IOS && STANDALONE) print("tip: Home Screen apps can drop downloads silently — run 'save share' to use the share sheet", "dim");
+    return true;
   }
+
+  // The photo also goes out on its own so it can be saved to Photos.
+  function offerPhoto(name, blob) {
+    if (!canShareFiles([{ name, blob }])) return;
+    printAction(`[ save photo to Photos ]`, () => shareFiles([{ name, blob }], "photo"));
+  }
+
   function download(name, blob) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name;
@@ -278,9 +331,11 @@
   new                 start a fresh entry (Alt+N)
   save                save current entry (Enter in last field, or Ctrl+Enter)
   ls                  list saved entries (this browser)
-  get <n>             download entry #n again
+  get <n>             save entry #n again
   rm <n>              delete entry #n from history (files you saved stay)
-  export              download every entry as one combined .md
+  export              save every entry as one combined .md
+  save share|download|auto  share sheet (Save to Files / Photos), plain download, or auto (share on iPhone/iPad)
+  where               show how saving works on this device
   folder              pick a folder to save into, no download prompts (Chrome/Edge desktop)
   folder off          go back to normal downloads
   photo embed|separate  embed photo inside the .md, or save it as a .jpg next to it
@@ -305,7 +360,14 @@ keys: Enter = next field / save · Shift+Enter = new line · Alt+P = photo · Ct
     switch (c) {
       case "help": case "?": print(HELP); break;
       case "new": newEntry(); break;
-      case "save": await save(); break;
+      case "save":
+        if (args[0]) {
+          if (!["share", "download", "auto"].includes(args[0])) throw new Error("use: save share | save download | save auto");
+          if (args[0] === "share" && !navigator.canShare) throw new Error("this browser has no share sheet for files");
+          settings.save = args[0]; saveSettings(); print(`save mode: ${settings.save}`, "ok"); break;
+        }
+        await save(); break;
+      case "where": print(whereText()); break;
       case "ls": {
         const all = await list();
         if (!all.length) { print("no entries yet"); break; }
@@ -315,7 +377,7 @@ keys: Enter = next field / save · Shift+Enter = new line · Alt+P = photo · Ct
       case "get": case "rm": {
         const n = parseInt(args[0], 10); const all = await list(); const x = all[n - 1];
         if (!x) throw new Error(`no entry #${args[0] ?? ""} (try ls)`);
-        if (c === "get") x.files.forEach((f, i) => setTimeout(() => download(f.name, f.blob), i * 250));
+        if (c === "get") await deliver(x.files, `#${n}`);
         else { await db.del(x.id); print(`removed #${n} from history`, "ok"); }
         break;
       }
@@ -324,8 +386,8 @@ keys: Enter = next field / save · Shift+Enter = new line · Alt+P = photo · Ct
         if (!all.length) { print("no entries yet"); break; }
         const parts = await Promise.all(all.map((x) => x.files[0].blob.text()));
         const out = parts.join("\n\n---\n\n");
-        download(`snapshots-export-${fmtFile(new Date())}.md`, new Blob([out], { type: "text/markdown" }));
-        print(`exported ${all.length} entries`, "ok");
+        print(`exporting ${all.length} entries`, "dim");
+        await deliver([{ name: `snapshots-export-${fmtFile(new Date())}.md`, blob: new Blob([out], { type: "text/markdown;charset=utf-8" }) }], "export");
         break;
       }
       case "folder": {
@@ -354,6 +416,24 @@ keys: Enter = next field / save · Shift+Enter = new line · Alt+P = photo · Ct
     const d = document.createElement("div"); d.className = cls; d.textContent = text;
     el.log.appendChild(d);
     while (el.log.childElementCount > 60) el.log.firstChild.remove();
+    return d;
+  }
+  // A tappable line in the log (a fresh tap is what lets the share sheet open).
+  function printAction(label, fn) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn act"; b.textContent = label;
+    b.addEventListener("click", () => { b.remove(); fn(); });
+    print("").appendChild(b);
+    b.scrollIntoView?.({ block: "nearest" });
+  }
+  function whereText() {
+    const mode = settings.save === "auto" ? `auto → ${IOS && navigator.canShare ? "share sheet" : "download"}` : settings.save;
+    return [
+      `save mode: ${mode}${IOS ? " · iPhone/iPad" : ""}${STANDALONE ? " · Home Screen app" : ""}`,
+      IOS ? "share sheet: pick Save to Files (Files app › folder you choose) or Save Image (Photos) for a photo" : "",
+      IOS ? "downloads: Files app › Browse › iCloud Drive (or On My iPhone) › Downloads" : "downloads: your browser's Downloads folder",
+      "every entry is also kept in this app's history: ls, then get <n> to save it again",
+      STANDALONE ? "note: the Home Screen app keeps its own history, separate from Safari's" : "",
+    ].filter(Boolean).join("\n");
   }
   function applyTheme() {
     document.documentElement.dataset.theme = settings.theme;
@@ -386,6 +466,7 @@ keys: Enter = next field / save · Shift+Enter = new line · Alt+P = photo · Ct
   }
   print("ready. type, press Enter to move on, Enter again to save. 'help' in the $ prompt for more.", "dim");
   getDir().then((d) => d && print(`saving into folder "${d.name}"`, "dim"));
+  if (IOS && settings.save === "auto") print("iPhone: saving opens the share sheet → Save to Files (or Save Image for photos). 'where' for details.", "dim");
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
